@@ -24,27 +24,31 @@ uint32_t unixtime_of_start;
 // Название и пароль "мягкой" точки доступа ESP32
 const char* ssid_ap = "ESP32";
 const char* password_ap = "00000000";
+ESP32WebServer server(80);
 
 // Пины светодиодов
-#define GREEN_PIN 2           // Светодиод "Зеленый"
-#define RED_PIN 4             // Светодиод "Красный"
-#define YELLOW_PIN 15         // Светодиод "Желтый"
-#define SETTINGS_LED_PIN 21   // Светодиод "Настройка"
+#define GREEN_PIN 2                             // Светодиод "Зеленый"
+#define RED_PIN 4                               // Светодиод "Красный"
+#define YELLOW_PIN 15                           // Светодиод "Желтый"
+#define SETTINGS_LED_PIN 21                     // Светодиод "Настройка"
 
 bool settings_mode = false;
 
 // Пины кнопок
-#define LEFT_BUT_PIN 17       // Кнопка "Левая"
-#define RIGHT_BUT_PIN 16      // Кнопка "Правая"
-#define SETTINGS_BUT_PIN 23   // Кнопка "Настройка"
+#define LEFT_BUT_PIN 17                         // Кнопка "Левая"
+#define RIGHT_BUT_PIN 16                        // Кнопка "Правая"
+#define SETTINGS_BUT_PIN 23                     // Кнопка "Настройка"
 
 // Пины энкодеров
-#define ENCODER_PIN 32
+#define ENCODER_PIN 32                          // Энкодер "Крутилка"
 uint32_t encoder_timer;
 
-button left_button(LEFT_BUT_PIN);
-button right_button(RIGHT_BUT_PIN);
-button settings_button(SETTINGS_BUT_PIN);
+button left_button(LEFT_BUT_PIN);               // Экземпляр класса Button для кнопки "Левая"
+button right_button(RIGHT_BUT_PIN);             // Экземпляр класса Button для кнопки "Правая"
+button settings_button(SETTINGS_BUT_PIN);       // Экземпляр класса Button для кнопки "Настройка"
+
+
+// = = = = = = = = = = = = = = = I2C = = = = = = = = = = = = = = = //
 
 // пины I2C
 #define I2C_SDA 19
@@ -54,6 +58,10 @@ button settings_button(SETTINGS_BUT_PIN);
 #define LCD_I2C_ADDR 0x3F
 #define EEPROM_I2C_ADDR 0x50
 
+// = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = //
+
+// = = = = = = = = = = = = = = EEPROM = = = = = = = = = = = = = = //
+
 // Время сохранения текста на EEPROM в секундах
 #define EEPROM_SAVE_TIME 5
 uint32_t last_eeprom_save_time;
@@ -62,13 +70,22 @@ char saved_text[33] {};
 // Адрес настроек в памяти EEPROM
 #define SETTINGS_ADDRESS 80
 
-ESP32WebServer server(80);
+// = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = //
+
+// = = = = = = = = = = = = = = ДИСПЛЕЙ = = = = = = = = = = = = = = //
+
+// Номера страниц дисплея в рабочем режиме
+#define MAIN_PAGE 0                             // Главная страница (для обоих режимов)
+#define SSID_PAGE 1                             // Страница с информацией о подключении
+#define TEXT_PAGE 2                             // Страница с сохраненным текстом
+
+// Номер страниц дисплея в режиме настройки
+//#define MAIN_PAGE_S 0                             // Главная страница (для обоих режимов)
+//#define MAIN_PAGE_S 0                             // Главная страница (для обоих режимов)
+
 MysteriousCrystal_I2C lcd(LCD_I2C_ADDR, 16, 2, 3);
 
-// Номера страниц дисплея
-#define MAIN_PAGE 0
-#define SSID_PAGE 1
-#define TEXT_PAGE 2
+// = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = //
 
 void handleRoot(void);
 void handlePostText(void);
@@ -128,8 +145,8 @@ void setup()
     if (!digitalRead(SETTINGS_BUT_PIN)) {
         digitalWrite(SETTINGS_LED_PIN, HIGH);
         settings_mode = true;
-        lcd.pg_print(0, 0, 0, "!   Settings   !");
-        lcd.pg_print(0, 0, 1, "!     mode     !");
+        lcd.pg_print(0, 0, 0, "|   Settings   |");
+        lcd.pg_print(0, 0, 1, "|     mode     |");
     }
     
     // Инициализация монитора порта
@@ -285,22 +302,14 @@ void setup()
         digitalWrite(GREEN_PIN, LOW);
         server.send(200, "text/html", "");
     });
-    server.on("/wifi_sta_on", [](){
-        Serial.println("STA ON");
-        byte wifi_sta_on;
-        eeprom_read(0, SETTINGS_ADDRESS, &wifi_sta_on, 1);
-        wifi_sta_on |= 1;
-        eeprom_write(0, SETTINGS_ADDRESS, &wifi_sta_on, 1);
-        Serial.println(wifi_sta_on);
+    server.on("/lcd_on", [](){
+        Serial.println("LCD ON");
+        lcd.backlight();
         server.send(200, "text/html", "");
     });
-    server.on("/wifi_sta_off", [](){
-        Serial.println("STA OFF");
-        byte wifi_sta_on;
-        eeprom_read(0, SETTINGS_ADDRESS, &wifi_sta_on, 1);
-        wifi_sta_on &=~ 1;
-        eeprom_write(0, SETTINGS_ADDRESS, &wifi_sta_on, 1);
-        Serial.println(wifi_sta_on);
+    server.on("/lcd_off", [](){
+        Serial.println("LCD OFF");
+        lcd.noBacklight();
         server.send(200, "text/html", "");
     });
     
@@ -310,7 +319,7 @@ void setup()
     server.begin();
     Serial.println ("HTTP server started");
     
-    lcd.pg_update();
+    lcd.pg_update_page();
     digitalWrite(YELLOW_PIN, LOW);
 }
 
@@ -412,10 +421,6 @@ R"=="==(
     </a>
 </p>
 
-<p>NUMBER
-    <input type="text" id="number" oninput="fetch('number'+document.getElementById('number').value)">
-</p>
-
 <p>Текст на дисплее
     <input type="text" id="text"
            oninput="fetch('text', {method: 'POST', body: document.getElementById('text').value})">
@@ -441,15 +446,6 @@ R"=="==(
         Сохранить
     </button>
 </p>
-
-/*<p> Подключаться к точке доступа
-    <a>
-        <button onclick="fetch('wifi_sta_on')">Да</button>
-    </a>&nbsp;
-    <a>
-        <button onclick="fetch('wifi_sta_off')">Нет</button>
-    </a>
-</p>*/
 
 </body>
 </html>
