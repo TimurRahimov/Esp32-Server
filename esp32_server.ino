@@ -16,6 +16,7 @@
 #include <HTTPClient.h>
 #include <UnixTime.h>
 #include "MysteriousCrystal_I2C.h"
+#include "MyCustomChars.h"
 
 // Для библиотека UnixTime
 UnixTime timestamp(3);  // указать GMT (3 для Москвы)
@@ -37,7 +38,7 @@ bool settings_mode = false;
 // Пины кнопок
 #define LEFT_BUT_PIN 17                         // Кнопка "Левая"
 #define RIGHT_BUT_PIN 16                        // Кнопка "Правая"
-#define SETTINGS_BUT_PIN 23                     // Кнопка "Настройка"
+#define SETT_BUT_PIN 23                         // Кнопка "Настройка"
 
 // Пины энкодеров
 #define ENCODER_PIN 32                          // Энкодер "Крутилка"
@@ -45,7 +46,7 @@ uint32_t encoder_timer;
 
 button left_button(LEFT_BUT_PIN);               // Экземпляр класса Button для кнопки "Левая"
 button right_button(RIGHT_BUT_PIN);             // Экземпляр класса Button для кнопки "Правая"
-button settings_button(SETTINGS_BUT_PIN);       // Экземпляр класса Button для кнопки "Настройка"
+button settings_button(SETT_BUT_PIN, false);    // Экземпляр класса Button для кнопки "Настройка"
 
 
 // = = = = = = = = = = = = = = = I2C = = = = = = = = = = = = = = = //
@@ -101,7 +102,7 @@ void setup()
     pinMode(RED_PIN, OUTPUT);
     pinMode(YELLOW_PIN, OUTPUT);
     pinMode(SETTINGS_LED_PIN, OUTPUT);
-    pinMode(SETTINGS_BUT_PIN, INPUT_PULLUP);
+    pinMode(SETT_BUT_PIN, INPUT_PULLUP);
     pinMode(LEFT_BUT_PIN, INPUT_PULLUP);
     pinMode(RIGHT_BUT_PIN, INPUT_PULLUP);
     pinMode(ENCODER_PIN, ANALOG);
@@ -117,9 +118,16 @@ void setup()
     lcd.pg_print(TEXT_PAGE, String(saved_text));
     
     // Инициализация LCD
-    lcd.init();                     
+    lcd.init();              
     lcd.backlight(); // Включаем подсветку дисплея
-    lcd.print("=$= Well cum =$=");
+    lcd.createChar(0, CustomChar_Gachi);
+    lcd.clear();
+    lcd.setCursor(2, 0);
+    lcd.write(char(0));
+    lcd.setCursor(13, 0);
+    lcd.write(char(0));
+    lcd.setCursor(4, 0);
+    lcd.print("Well cum");
     lcd.setCursor(0, 1);
     
     switch(random(0, 5)) {
@@ -142,17 +150,22 @@ void setup()
     }
     
     delay(100);
-    if (!digitalRead(SETTINGS_BUT_PIN)) {
+    if (!digitalRead(SETT_BUT_PIN)) {
         digitalWrite(SETTINGS_LED_PIN, HIGH);
         settings_mode = true;
-        lcd.pg_print(0, 0, 0, "|   Settings   |");
-        lcd.pg_print(0, 0, 1, "|     mode     |");
+        lcd.pg_print(MAIN_PAGE, 0, 0, "|   Settings   |");
+        lcd.pg_print(MAIN_PAGE, 0, 1, "|     mode     |");
+        lcd.pg_print(MAIN_PAGE, 0, 0, (byte) 0);
+        lcd.pg_print(MAIN_PAGE, 15, 0, (byte) 0);
+        lcd.pg_print(MAIN_PAGE, 0, 1, (byte) 0);
+        lcd.pg_print(MAIN_PAGE, 15, 1, (byte) 0);
     }
     
     // Инициализация монитора порта
     Serial.begin(115200);
     // Запас времени на открытие монитора порта — 5 секунд (0.2 сек до чтения состояния кнопки, 4.8 после)
     delay(4000);
+    lcd.createChar(0, CustomChar_Monogram); 
     lcd.clear();
     delay(1000);
     
@@ -487,6 +500,11 @@ void clock_tick() {
         if (timestamp.month < 10) 
             lcd.pg_print(MAIN_PAGE, "0");
         lcd.pg_print(MAIN_PAGE, (String) timestamp.month + "." + (String) timestamp.year + "  |");
+        
+        lcd.pg_print(MAIN_PAGE, 0, 0, (byte) 0);
+        lcd.pg_print(MAIN_PAGE, 15, 0, (byte) 0);
+        lcd.pg_print(MAIN_PAGE, 0, 1, (byte) 0);
+        lcd.pg_print(MAIN_PAGE, 15, 1, (byte) 0);
     }
 }
 
@@ -499,7 +517,6 @@ void button_handler() {
         Serial.println("Left Button!");
         Serial.println(lcd.current_page);
         Serial.println(lcd.pg_get_current_text());
-        lcd.pg_update_page();
     }
     if (right_button.click()) {
         if (lcd.current_page != 2)
@@ -507,11 +524,19 @@ void button_handler() {
         Serial.println("Right Button!");
         Serial.println(lcd.current_page);
         Serial.println(lcd.pg_get_current_text());
-        lcd.pg_update_page();
     }
     if (settings_button.click()) {
-        encoder_mode = !encoder_mode;
-        if (!encoder_mode && settings_mode) {
+        if(lcd.current_page == 0 || lcd.current_page == 2)
+        {
+            lcd.createChar(0, CustomChar_Love);
+            digitalWrite(GREEN_PIN, HIGH);
+        }
+        else if(lcd.current_page == 1)
+        {
+            digitalWrite(GREEN_PIN, HIGH);
+        }
+        //encoder_mode = !encoder_mode;
+        //if (!encoder_mode && settings_mode) {
             
             //lcd_text[0][0] = "!   Settings   !";
             //lcd_text[0][1] = "!     mode     !";
@@ -519,8 +544,12 @@ void button_handler() {
             lcd.print("!   Settings   !");
             lcd.setCursor(0, 1);
             lcd.print("!     mode     !");   */
-        }
+        //}
+    } else {
+        lcd.createChar(0, CustomChar_Monogram); 
+        digitalWrite(GREEN_PIN, LOW);
     }
+    lcd.pg_update_page();
 }
 
 void encoder_handler() {

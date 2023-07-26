@@ -20,6 +20,7 @@ public:
     void pg_clear(uint8_t page);
     void pg_print(uint8_t page, uint8_t col, uint8_t row, String text);
     void pg_print(uint8_t page, uint8_t col, uint8_t row, char text);
+    void pg_print(uint8_t page, uint8_t col, uint8_t row, byte text);
     void pg_print(uint8_t page, String text);
     void pg_update(bool all = 0);
     void pg_update_page();
