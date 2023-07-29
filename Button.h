@@ -11,9 +11,10 @@
 
 class button {
 public:
-    button (byte pin, bool impuls = true) {
+    button (byte pin, bool impuls = false, bool once = false) {
         _pin = pin;
         _impuls = impuls;
+        _once = once;
         pinMode(_pin, INPUT_PULLUP);
     }
     bool click() {
@@ -32,7 +33,10 @@ public:
                         return true;
                     }
                 } else {
-                    return true;
+                    if (_once)
+                        return false;
+                    else
+                        return true;
                 }
             }
         } else {
@@ -48,6 +52,7 @@ private:
     uint32_t _tmr;
     bool _flag;
     bool _impuls;
+    bool _once;
 };
 
 #endif

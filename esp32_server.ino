@@ -17,6 +17,7 @@
 #include <UnixTime.h>
 #include "MysteriousCrystal_I2C.h"
 #include "MyCustomChars.h"
+#include "Transliteration.h"
 
 // Для библиотека UnixTime
 UnixTime timestamp(3);  // указать GMT (3 для Москвы)
@@ -44,9 +45,9 @@ bool settings_mode = false;
 #define ENCODER_PIN 32                          // Энкодер "Крутилка"
 uint32_t encoder_timer;
 
-button left_button(LEFT_BUT_PIN);               // Экземпляр класса Button для кнопки "Левая"
-button right_button(RIGHT_BUT_PIN);             // Экземпляр класса Button для кнопки "Правая"
-button settings_button(SETT_BUT_PIN, false);    // Экземпляр класса Button для кнопки "Настройка"
+button left_button(LEFT_BUT_PIN, true);               // Экземпляр класса Button для кнопки "Левая"
+button right_button(RIGHT_BUT_PIN, true);             // Экземпляр класса Button для кнопки "Правая"
+button settings_button(SETT_BUT_PIN, false, true);    // Экземпляр класса Button для кнопки "Настройка"
 
 
 // = = = = = = = = = = = = = = = I2C = = = = = = = = = = = = = = = //
@@ -79,12 +80,16 @@ char saved_text[33] {};
 #define MAIN_PAGE 0                             // Главная страница (для обоих режимов)
 #define SSID_PAGE 1                             // Страница с информацией о подключении
 #define TEXT_PAGE 2                             // Страница с сохраненным текстом
+#define SETT_PAGE 3
+#define SETT_PAGE_1 4
+#define SETT_PAGE_N 6
+
 
 // Номер страниц дисплея в режиме настройки
 //#define MAIN_PAGE_S 0                             // Главная страница (для обоих режимов)
 //#define MAIN_PAGE_S 0                             // Главная страница (для обоих режимов)
 
-MysteriousCrystal_I2C lcd(LCD_I2C_ADDR, 16, 2, 3);
+MysteriousCrystal_I2C lcd(LCD_I2C_ADDR, 16, 2, 7);
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = //
 
@@ -116,6 +121,12 @@ void setup()
     // Чтение сохраненного значения дисплея из памяти
     eeprom_read(0, 48, (byte*) saved_text, 32);
     lcd.pg_print(TEXT_PAGE, String(saved_text));
+    
+    lcd.pg_print(SETT_PAGE, "Settings");
+    for(int f = 0; f < 3; f++)
+    {
+        lcd.pg_print(4 + f, "Settings" + String(f));
+    }
     
     // Инициализация LCD
     lcd.init();              
@@ -177,6 +188,10 @@ void setup()
         WiFi.softAP(ssid_ap, password_ap);
         delay(100);
         Serial.println("Wi-Fi AP created");
+
+        lcd.pg_print(SSID_PAGE, 0, 0, (String) ssid_ap);
+        lcd.pg_print(SSID_PAGE, 0, 1, WiFi.softAPIP().toString());
+        
     } else {
         char ssid_wifi_sta[16] {};
         char pass_wifi_sta[16] {};
@@ -325,6 +340,16 @@ void setup()
         lcd.noBacklight();
         server.send(200, "text/html", "");
     });
+    server.on("/get_english", [](){
+        Serial.println("GET ENGLISH");
+        server.send(200, "text/html", String(saved_text));
+    });
+    server.on("/get_russian", [](){
+        Serial.println("GET RUSSIAN");
+        server.send(200, "text/html", 
+        R"=="==(<meta name="viewport" content="width=device-width, initial-scale=1" charset="UTF-8">)=="==" +
+        english_to_russian(String(saved_text)));
+    });
     
     server.on("/text", handlePostText);
     server.on("/wifi_sta", handlePostWifiSta);
@@ -356,13 +381,21 @@ void handlePostText() {
     String message = "Body received:\n";
     message += server.arg("plain");
     message += "\n";
+    
+    String to_display = russian_to_english(server.arg("plain"));
 
-    server.arg("plain").toCharArray(saved_text, 33);
+    to_display.toCharArray(saved_text, 33);
     lcd.pg_clear(TEXT_PAGE);
-    lcd.pg_print(TEXT_PAGE, server.arg("plain"));
+    lcd.pg_print(TEXT_PAGE, to_display);
 
     Serial.println(message);
     Serial.println(sizeof(message));
+    Serial.println(to_display);
+    
+    //for(int i = 0; i < server.arg("plain").length(); i++)
+    //{
+    //    Serial.println((int) server.arg("plain")[i]);
+    //}
     server.send(200, "text/plain", "");
 }
 
@@ -511,44 +544,60 @@ void clock_tick() {
 bool encoder_mode = false;
 
 void button_handler() {
-    if (left_button.click()) {
-        if (lcd.current_page != 0)
-            lcd.current_page--;
-        Serial.println("Left Button!");
-        Serial.println(lcd.current_page);
-        Serial.println(lcd.pg_get_current_text());
-    }
-    if (right_button.click()) {
-        if (lcd.current_page != 2)
-            lcd.current_page++;
-        Serial.println("Right Button!");
-        Serial.println(lcd.current_page);
-        Serial.println(lcd.pg_get_current_text());
-    }
-    if (settings_button.click()) {
-        if(lcd.current_page == 0 || lcd.current_page == 2)
+    
+    // Функция обрабатывает нажатия клавиш для разных страницах
+    // Страницы настроек будут располагаться после 2-ой или 3-ей
+    
+    if (lcd.current_page >= 0 && lcd.current_page <= 3)
+    {
+        if (left_button.click()) 
         {
-            lcd.createChar(0, CustomChar_Love);
-            digitalWrite(GREEN_PIN, HIGH);
+            Serial.println("Left Button!");
+            if (lcd.current_page != 0)
+                lcd.current_page--;
+            Serial.println(lcd.current_page);
+            Serial.println(lcd.pg_get_current_text());
         }
-        else if(lcd.current_page == 1)
+        if (right_button.click()) 
         {
-            digitalWrite(GREEN_PIN, HIGH);
+            Serial.println("Right Button!");
+            if (lcd.current_page != 3)
+                lcd.current_page++;
+            Serial.println(lcd.current_page);
+            Serial.println(lcd.pg_get_current_text());
         }
-        //encoder_mode = !encoder_mode;
-        //if (!encoder_mode && settings_mode) {
-            
-            //lcd_text[0][0] = "!   Settings   !";
-            //lcd_text[0][1] = "!     mode     !";
-            /*lcd.clear();
-            lcd.print("!   Settings   !");
-            lcd.setCursor(0, 1);
-            lcd.print("!     mode     !");   */
-        //}
-    } else {
-        lcd.createChar(0, CustomChar_Monogram); 
-        digitalWrite(GREEN_PIN, LOW);
+        if (settings_button.click()) {
+            if (lcd.current_page == 3)
+                lcd.current_page++;
+            else
+                lcd.createChar(0, CustomChar_Love);
+        }
+        else 
+            lcd.createChar(0, CustomChar_Monogram); 
     }
+    else if (lcd.current_page >= 4 && lcd.current_page <= 6)
+    {
+        if (left_button.click()) 
+        {
+            Serial.println("Left Button!");
+            if (lcd.current_page != 4)
+                lcd.current_page--;
+            Serial.println(lcd.current_page);
+            Serial.println(lcd.pg_get_current_text());
+        }
+        if (right_button.click()) 
+        {
+            Serial.println("Right Button!");
+            if (lcd.current_page != 6)
+                lcd.current_page++;
+            Serial.println(lcd.current_page);
+            Serial.println(lcd.pg_get_current_text());
+        }
+        if (settings_button.click()) { 
+            lcd.current_page = 3;
+        }
+    }
+    
     lcd.pg_update_page();
 }
 
