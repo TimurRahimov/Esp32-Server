@@ -11,7 +11,7 @@
 
 class button {
 public:
-    button (byte pin, bool impuls = false, bool once = false) {
+    button (byte pin, bool impuls = false, bool once = true) {
         _pin = pin;
         _impuls = impuls;
         _once = once;
@@ -21,7 +21,7 @@ public:
         bool btnState = !digitalRead(_pin);
         if (btnState) {
             if (!_flag) {
-                if(millis() - _tmr >= 100) {
+                if(millis() - _tmr >= 90) {
                     _flag = true;
                     _tmr = millis();
                     return true;

@@ -25,6 +25,8 @@ public:
     void pg_update(bool all = 0);
     void pg_update_page();
     String pg_get_current_text();
+    void pg_setCursor(uint8_t page, uint8_t col, uint8_t row);
+    
     uint8_t current_page;
     
 private:

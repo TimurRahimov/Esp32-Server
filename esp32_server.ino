@@ -34,20 +34,22 @@ ESP32WebServer server(80);
 #define YELLOW_PIN 15                           // Светодиод "Желтый"
 #define SETTINGS_LED_PIN 21                     // Светодиод "Настройка"
 
-bool settings_mode = false;
+bool settings_mode = false;                     // Флаг режима "Настройка"
 
 // Пины кнопок
 #define LEFT_BUT_PIN 17                         // Кнопка "Левая"
 #define RIGHT_BUT_PIN 16                        // Кнопка "Правая"
 #define SETT_BUT_PIN 23                         // Кнопка "Настройка"
+#define BACK_BUT_PIN 5                          // Кнопка "Назад"
 
 // Пины энкодеров
 #define ENCODER_PIN 32                          // Энкодер "Крутилка"
 uint32_t encoder_timer;
 
-button left_button(LEFT_BUT_PIN, true);               // Экземпляр класса Button для кнопки "Левая"
-button right_button(RIGHT_BUT_PIN, true);             // Экземпляр класса Button для кнопки "Правая"
-button settings_button(SETT_BUT_PIN, false, true);    // Экземпляр класса Button для кнопки "Настройка"
+button left_button(LEFT_BUT_PIN, true);         // Экземпляр класса Button для кнопки "Левая"
+button right_button(RIGHT_BUT_PIN, true);       // Экземпляр класса Button для кнопки "Правая"
+button settings_button(SETT_BUT_PIN);           // Экземпляр класса Button для кнопки "Настройка"
+button back_button(BACK_BUT_PIN);               // Экземпляр класса Button для кнопки "Назад"
 
 
 // = = = = = = = = = = = = = = = I2C = = = = = = = = = = = = = = = //
@@ -65,7 +67,7 @@ button settings_button(SETT_BUT_PIN, false, true);    // Экземпляр кл
 // = = = = = = = = = = = = = = EEPROM = = = = = = = = = = = = = = //
 
 // Время сохранения текста на EEPROM в секундах
-#define EEPROM_SAVE_TIME 5
+#define EEPROM_SAVE_TIME 10
 uint32_t last_eeprom_save_time;
 char saved_text[33] {};
 
@@ -77,12 +79,17 @@ char saved_text[33] {};
 // = = = = = = = = = = = = = = ДИСПЛЕЙ = = = = = = = = = = = = = = //
 
 // Номера страниц дисплея в рабочем режиме
-#define MAIN_PAGE 0                             // Главная страница (для обоих режимов)
-#define SSID_PAGE 1                             // Страница с информацией о подключении
-#define TEXT_PAGE 2                             // Страница с сохраненным текстом
-#define SETT_PAGE 3
+#define TEXT_PAGE 0                             // Страница с сохраненным текстом
+#define MAIN_PAGE 1                             // Главная страница (для обоих режимов)
+#define SSID_PAGE 2                             // Страница с информацией о подключении
+#define SETT_PAGE 3                             // Страница перехода в меню "Настройки"
+
 #define SETT_PAGE_1 4
-#define SETT_PAGE_N 6
+#define SETT_PAGE_2 5
+#define SETT_PAGE_3 6
+
+uint8_t ML_Char = 1;                            // Номер пользовательского символа рамки
+bool love_mode = false;                         // Флаг Любви
 
 
 // Номер страниц дисплея в режиме настройки
@@ -96,9 +103,11 @@ MysteriousCrystal_I2C lcd(LCD_I2C_ADDR, 16, 2, 7);
 void handleRoot(void);
 void handlePostText(void);
 void handlePostWifiSta(void);
+void handlePostTimeFormat(void);
 void button_handler(void);
 void encoder_handler(void);
 void clock_tick(void);
+void eeprom_tick(void);
 
 void setup()
 {
@@ -110,6 +119,7 @@ void setup()
     pinMode(SETT_BUT_PIN, INPUT_PULLUP);
     pinMode(LEFT_BUT_PIN, INPUT_PULLUP);
     pinMode(RIGHT_BUT_PIN, INPUT_PULLUP);
+    pinMode(BACK_BUT_PIN, INPUT_PULLUP);
     pinMode(ENCODER_PIN, ANALOG);
     
     // Включение желтого светодиода на время настройки МК
@@ -118,69 +128,84 @@ void setup()
     // Инициализация I2C
     Wire.begin(I2C_SDA, I2C_SCL);
     
+    /*
+    byte clear_byte = 0;
+    eeprom_write(0, 80, &clear_byte, 1);
+    eeprom_write(0, 81, &clear_byte, 1);
+    eeprom_write(0, 82, &clear_byte, 1);
+    */
+    
     // Чтение сохраненного значения дисплея из памяти
     eeprom_read(0, 48, (byte*) saved_text, 32);
     lcd.pg_print(TEXT_PAGE, String(saved_text));
     
-    lcd.pg_print(SETT_PAGE, "Settings");
+    lcd.pg_print(SETT_PAGE, "  HACTPOUKU     ");
+    lcd.pg_print(SETT_PAGE, "  O CUCTEME     ");
+    lcd.pg_print(SETT_PAGE, 0, 0, (byte) 126);
+    lcd.pg_print(SETT_PAGE, 0, 1, (byte) 165);
+    
     for(int f = 0; f < 3; f++)
     {
         lcd.pg_print(4 + f, "Settings" + String(f));
     }
+    lcd.current_page = 1;
     
     // Инициализация LCD
     lcd.init();              
     lcd.backlight(); // Включаем подсветку дисплея
-    lcd.createChar(0, CustomChar_Gachi);
+    lcd.createChar(ML_Char, CustomChar_Gachi);
     lcd.clear();
     lcd.setCursor(2, 0);
-    lcd.write(char(0));
+    lcd.write(char(ML_Char));
     lcd.setCursor(13, 0);
-    lcd.write(char(0));
+    lcd.write(char(ML_Char));
     lcd.setCursor(4, 0);
     lcd.print("Well cum");
     lcd.setCursor(0, 1);
     
-    switch(random(0, 5)) {
-    case 0:
-        lcd.print("Pay me 300 bucks");
-        break;
-    case 1:
-        lcd.print("My Fucking Slave");
-        break;
-    case 2:
-        lcd.print("   to Dungeon   ");
-        break;
-    case 3:
-        lcd.print(" Dungeon Master ");
-        break;
-    
-    default:
-        lcd.print("   My Jabroni   ");
-        break;
+    switch(random(0, 5)) 
+    {
+        case 0:
+            lcd.print("Pay me 300 bucks");
+            break;
+        case 1:
+            lcd.print("My Fucking Slave");
+            break;
+        case 2:
+            lcd.print("   to Dungeon   ");
+            break;
+        case 3:
+            lcd.print(" Dungeon Master ");
+            break;
+        
+        default:
+            lcd.print("   My Jabroni   ");
+            break;
     }
     
     delay(100);
-    if (!digitalRead(SETT_BUT_PIN)) {
+    if (!digitalRead(SETT_BUT_PIN)) 
+    {
         digitalWrite(SETTINGS_LED_PIN, HIGH);
         settings_mode = true;
         lcd.pg_print(MAIN_PAGE, 0, 0, "|   Settings   |");
         lcd.pg_print(MAIN_PAGE, 0, 1, "|     mode     |");
-        lcd.pg_print(MAIN_PAGE, 0, 0, (byte) 0);
-        lcd.pg_print(MAIN_PAGE, 15, 0, (byte) 0);
-        lcd.pg_print(MAIN_PAGE, 0, 1, (byte) 0);
-        lcd.pg_print(MAIN_PAGE, 15, 1, (byte) 0);
+        lcd.pg_print(MAIN_PAGE, 0, 0, (byte) ML_Char);
+        lcd.pg_print(MAIN_PAGE, 15, 0, (byte) ML_Char);
+        lcd.pg_print(MAIN_PAGE, 0, 1, (byte) ML_Char);
+        lcd.pg_print(MAIN_PAGE, 15, 1, (byte) ML_Char);
     }
     
     // Инициализация монитора порта
     Serial.begin(115200);
     // Запас времени на открытие монитора порта — 5 секунд (0.2 сек до чтения состояния кнопки, 4.8 после)
     delay(4000);
-    lcd.createChar(0, CustomChar_Monogram); 
+    lcd.createChar(ML_Char, CustomChar_Monogram); 
     lcd.clear();
     delay(1000);
     
-    if (settings_mode) {
+    if (settings_mode) 
+    {
         WiFi.mode(WIFI_AP);
         // Создание "мягкой" точки доступа Wi-Fi
         Serial.print("Creating Soft AP ");
@@ -192,7 +217,9 @@ void setup()
         lcd.pg_print(SSID_PAGE, 0, 0, (String) ssid_ap);
         lcd.pg_print(SSID_PAGE, 0, 1, WiFi.softAPIP().toString());
         
-    } else {
+    } 
+    else 
+    {
         char ssid_wifi_sta[16] {};
         char pass_wifi_sta[16] {};
         eeprom_read(0, 0, (byte*) ssid_wifi_sta, 16);
@@ -212,30 +239,45 @@ void setup()
         uint8_t cursor = 11;
         uint8_t dir = 0;
         
-        while (WiFi.status() != WL_CONNECTED) {
+        while (WiFi.status() != WL_CONNECTED) 
+        {
         
-            if (cursor == 16 & dir == 0) {
+            if (cursor == 16 & dir == 0) 
+            {
                 cursor = 11;
                 dir = 1;
-            } else if (cursor == 15 & dir == 1) {
+            } 
+            else if (cursor == 15 & dir == 1) 
+            {
                 dir = 2;
-            } else if (cursor == 10 & dir == 2) {
+            } 
+            else if (cursor == 10 & dir == 2) 
+            {
                 cursor = 15;
                 dir = 3;
-            } else if (cursor == 11 & dir == 3) {
+            } 
+            else if (cursor == 11 & dir == 3) 
+            {
                 dir = 0;
             } 
             
-            if (dir == 0) {
+            if (dir == 0) 
+            {
                 lcd.setCursor(cursor++, 0);
                 lcd.write('.');
-            } else if (dir == 1) {
+            } 
+            else if (dir == 1) 
+            {
                 lcd.setCursor(cursor++, 0);
                 lcd.write(' ');
-            } else if (dir == 2) {
+            } 
+            else if (dir == 2) 
+            {
                 lcd.setCursor(cursor--, 0);
                 lcd.write('.');
-            } else if (dir == 3) {
+            } 
+            else if (dir == 3) 
+            {
                 lcd.setCursor(cursor--, 0);
                 lcd.write(' ');
             }
@@ -258,7 +300,8 @@ void setup()
         Serial.println(WiFi.softAPIP());
         
         // создаем DNS-запись для домена esp32.local, связывающую его с IP-адресом
-        if (!MDNS.begin("esp32")) {
+        if (!MDNS.begin("esp32")) 
+        {
             Serial.println("Error setting up MDNS responder!");
         }
         
@@ -269,10 +312,12 @@ void setup()
         // делаем GET запрос
         int httpCode = http.GET();
         // проверяем успешность запроса
-        if (httpCode > 0) {
+        if (httpCode > 0) 
+        {
             StaticJsonDocument<500> doc;
             DeserializationError error = deserializeJson(doc, (String) http.getString());
-            if (error) {
+            if (error) 
+            {
                 Serial.print(F("deserializeJson() failed: "));
                 Serial.println(error.f_str());
             }
@@ -280,7 +325,8 @@ void setup()
             Serial.println(unixtime_of_start);
             eeprom_write(0, 32, (byte*)&unixtime_of_start, 4);
         }
-        else {
+        else 
+        {
             while(1)
             {
                 Serial.println("Ошибка HTTP-запроса");
@@ -289,10 +335,12 @@ void setup()
                 // делаем GET запрос
                 int httpCode = http.GET();
                 // проверяем успешность запроса
-                if (httpCode > 0) {
+                if (httpCode > 0) 
+                {
                     StaticJsonDocument<500> doc;
                     DeserializationError error = deserializeJson(doc, (String) http.getString());
-                    if (error) {
+                    if (error) 
+                    {
                         Serial.print(F("deserializeJson() failed: "));
                         Serial.println(error.f_str());
                     }
@@ -310,41 +358,49 @@ void setup()
     }
 
     server.on("/", handleRoot);
-    server.on("/on_red", [](){
+    server.on("/on_red", []()
+    {
         Serial.println("LED RED ON");
         digitalWrite(RED_PIN, HIGH);
         server.send(200, "text/html", "");
     });
-    server.on("/off_red", [](){
+    server.on("/off_red", []()
+    {
         Serial.println("LED RED OFF");
         digitalWrite(RED_PIN, LOW);
         server.send(200, "text/html", "");
     });
-    server.on("/on_green", [](){
+    server.on("/on_green", []()
+    {
         Serial.println("LED GREEN ON");
         digitalWrite(GREEN_PIN, HIGH);
         server.send(200, "text/html", "");
     });
-    server.on("/off_green", [](){
+    server.on("/off_green", []()
+    {
         Serial.println("LED GREEN OFF");
         digitalWrite(GREEN_PIN, LOW);
         server.send(200, "text/html", "");
     });
-    server.on("/lcd_on", [](){
+    server.on("/lcd_on", []()
+    {
         Serial.println("LCD ON");
         lcd.backlight();
         server.send(200, "text/html", "");
     });
-    server.on("/lcd_off", [](){
+    server.on("/lcd_off", []()
+    {
         Serial.println("LCD OFF");
         lcd.noBacklight();
         server.send(200, "text/html", "");
     });
-    server.on("/get_english", [](){
+    server.on("/get_english", []()
+    {
         Serial.println("GET ENGLISH");
         server.send(200, "text/html", String(saved_text));
     });
-    server.on("/get_russian", [](){
+    server.on("/get_russian", []()
+    {
         Serial.println("GET RUSSIAN");
         server.send(200, "text/html", 
         R"=="==(<meta name="viewport" content="width=device-width, initial-scale=1" charset="UTF-8">)=="==" +
@@ -353,6 +409,7 @@ void setup()
     
     server.on("/text", handlePostText);
     server.on("/wifi_sta", handlePostWifiSta);
+    server.on("/time_format", handlePostTimeFormat);
     
     server.begin();
     Serial.println ("HTTP server started");
@@ -372,8 +429,34 @@ void loop()
     lcd.pg_update();
 }
 
-void handlePostText() {
-    if (server.hasArg("plain")== false){ //Check if body received
+void handlePostTimeFormat() 
+{
+    if (server.hasArg("plain")== false) // Check if body received
+    {
+        server.send(200, "text/plain", "Body not received");
+        return;
+    }
+
+    String message = "Body received:\n";
+    message += server.arg("plain");
+    message += "\n";
+    
+    Serial.println(message);
+    
+    uint8_t time_format = server.arg("plain").toInt();
+    byte format_settings;
+    eeprom_read(0, 82, &format_settings, 1);
+    format_settings &= ~(B11);
+    format_settings = format_settings | (time_format & B11);
+    eeprom_write(0, 82, &format_settings, 1);
+    
+    server.send(200, "text/plain", "");
+}
+
+void handlePostText() 
+{
+    if (server.hasArg("plain")== false) // Check if body received
+    {
         server.send(200, "text/plain", "Body not received");
         return;
     }
@@ -399,15 +482,18 @@ void handlePostText() {
     server.send(200, "text/plain", "");
 }
 
-void handlePostWifiSta() {
-    if (server.hasArg("plain") == false){ //Check if body received
+void handlePostWifiSta() 
+{
+    if (server.hasArg("plain") == false) // Check if body received
+    {
         server.send(200, "text/plain", "Body not received");
         return;
     }
     
     StaticJsonDocument<96> doc;
     DeserializationError error = deserializeJson(doc, (String) server.arg("plain"));
-    if (error) {
+    if (error) 
+    {
         Serial.print(F("deserializeJson() failed: "));
         Serial.println(error.f_str());
     }
@@ -427,7 +513,8 @@ void handlePostWifiSta() {
     server.send(200, "text/plain", "");
 }
 
-void handleRoot() { 
+void handleRoot() 
+{ 
 
 const String rootPage2(
 
@@ -443,7 +530,10 @@ R"=="==(
         let ssid = document.getElementById('ssid_wifi_sta').value;
         let pass = document.getElementById('pass_wifi_sta').value;
         await fetch('wifi_sta', {method: 'POST', body: JSON.stringify({ssid: ssid, pass: pass})});
-        
+    }
+    async function set_time_format() {
+        let time_format = document.getElementById("time_format").value;
+        await fetch('time_format', {method: 'POST', body: time_format});
     }
     </script> 
 </head>
@@ -487,10 +577,22 @@ R"=="==(
     <label for="pass_wifi_sta">Пароль точки доступа</label>
     <input type="text" id="pass_wifi_sta">
 
-    <button
-            onclick="send()">
+    <button onclick="send()">
         Сохранить
     </button>
+</p>
+
+<p>
+
+    <label for="time_format">Формат отображения времени</label>
+    <select id="time_format" name="time_format">
+    <option value="0">чч:мм:сс</option>
+    <option value="1">чч:мм</option>
+    <option value="2">ч:мм:сс</option>
+    <option value="3">ч:мм</option>
+    </select>
+    <button onclick="set_time_format()">Выбрать</button>
+
 </p>
 
 </body>
@@ -501,8 +603,10 @@ R"=="==(
     server.send(200, "text/html", rootPage2);
 }
 
-void eeprom_tick() {
-    if (millis() - last_eeprom_save_time > EEPROM_SAVE_TIME * 1000) {
+void eeprom_tick() 
+{
+    if (millis() - last_eeprom_save_time > EEPROM_SAVE_TIME * 1000) 
+    {
         digitalWrite(RED_PIN, HIGH);
         // Сохранение значения дисплея в память
         eeprom_write(0, 48, (byte*)saved_text, 32);
@@ -511,11 +615,45 @@ void eeprom_tick() {
     }
 }
 
-void clock_tick() {
-    if (!settings_mode) {
+void clock_tick() 
+{
+    if (!settings_mode)
+    {
+        byte format_settings, time_format, date_format;
+        eeprom_read(0, 82, &format_settings, 1);
+        time_format = format_settings & B11;
+        date_format = (format_settings & B11100) >> 2;
+        
         timestamp.getDateTime(unixtime_of_start + (uint32_t) (millis() / 1000));
         lcd.pg_clear(MAIN_PAGE);
-        lcd.pg_print(MAIN_PAGE, "|   ");
+        
+        if (time_format == 0 || time_format == 2)
+        {
+            lcd.pg_print(MAIN_PAGE, "|   ");
+            if (timestamp.hour < 10) 
+                lcd.pg_print(MAIN_PAGE, time_format == 0 ? "0" : " ");
+            lcd.pg_print(MAIN_PAGE, (String) timestamp.hour + ":");
+            if (timestamp.minute < 10) 
+                lcd.pg_print(MAIN_PAGE, "0");
+            lcd.pg_print(MAIN_PAGE, (String) timestamp.minute + ":");
+            if (timestamp.second < 10) 
+                lcd.pg_print(MAIN_PAGE, "0");
+            lcd.pg_print(MAIN_PAGE, (String) timestamp.second + "   |");
+        } else if (time_format == 1 || time_format == 3) {
+            lcd.pg_print(MAIN_PAGE, "|     ");
+            if (timestamp.hour < 10) 
+                lcd.pg_print(MAIN_PAGE, time_format == 1 ? "0" : " ");
+                //if (time_format == 3)
+                //    lcd.pg_print(MAIN_PAGE, " ");
+                //else
+                //    lcd.pg_print(MAIN_PAGE, "0");
+            lcd.pg_print(MAIN_PAGE, (String) timestamp.hour + ":");
+            if (timestamp.minute < 10) 
+                lcd.pg_print(MAIN_PAGE, "0");
+            lcd.pg_print(MAIN_PAGE, (String) timestamp.minute + "    |");
+        }
+        
+        /*lcd.pg_print(MAIN_PAGE, "|   ");
         if (timestamp.hour < 10) 
             lcd.pg_print(MAIN_PAGE, "0");
         lcd.pg_print(MAIN_PAGE, (String) timestamp.hour + ":");
@@ -524,8 +662,10 @@ void clock_tick() {
         lcd.pg_print(MAIN_PAGE, (String) timestamp.minute + ":");
         if (timestamp.second < 10) 
             lcd.pg_print(MAIN_PAGE, "0");
-        lcd.pg_print(MAIN_PAGE, (String) timestamp.second + "   |");
+        lcd.pg_print(MAIN_PAGE, (String) timestamp.second + "   |");*/
         
+        
+        lcd.pg_setCursor(MAIN_PAGE, 0, 1);
         lcd.pg_print(MAIN_PAGE, "|  ");
         if (timestamp.day < 10) 
             lcd.pg_print(MAIN_PAGE, "0");
@@ -534,21 +674,26 @@ void clock_tick() {
             lcd.pg_print(MAIN_PAGE, "0");
         lcd.pg_print(MAIN_PAGE, (String) timestamp.month + "." + (String) timestamp.year + "  |");
         
-        lcd.pg_print(MAIN_PAGE, 0, 0, (byte) 0);
-        lcd.pg_print(MAIN_PAGE, 15, 0, (byte) 0);
-        lcd.pg_print(MAIN_PAGE, 0, 1, (byte) 0);
-        lcd.pg_print(MAIN_PAGE, 15, 1, (byte) 0);
+        lcd.pg_print(MAIN_PAGE, 0, 0, (byte) ML_Char);
+        lcd.pg_print(MAIN_PAGE, 15, 0, (byte) ML_Char);
+        lcd.pg_print(MAIN_PAGE, 0, 1, (byte) ML_Char);
+        lcd.pg_print(MAIN_PAGE, 15, 1, (byte) ML_Char);
+        
+        //lcd.pg_print(MAIN_PAGE, 1, 0, String(time_format));
+        //lcd.pg_print(MAIN_PAGE, 1, 1, String(date_format));
     }
 }
 
 bool encoder_mode = false;
+uint8_t additional_menu_pos = 0;
+uint8_t settings_menu_pos = 0;
 
 void button_handler() {
     
     // Функция обрабатывает нажатия клавиш для разных страницах
     // Страницы настроек будут располагаться после 2-ой или 3-ей
     
-    if (lcd.current_page >= 0 && lcd.current_page <= 3)
+    if (lcd.current_page >= 0 && lcd.current_page <= 2)
     {
         if (left_button.click()) 
         {
@@ -566,14 +711,48 @@ void button_handler() {
             Serial.println(lcd.current_page);
             Serial.println(lcd.pg_get_current_text());
         }
-        if (settings_button.click()) {
-            if (lcd.current_page == 3)
-                lcd.current_page++;
-            else
-                lcd.createChar(0, CustomChar_Love);
+        if (settings_button.click()) 
+        {
+            if (lcd.current_page == MAIN_PAGE)
+                love_mode = !love_mode;
         }
-        else 
-            lcd.createChar(0, CustomChar_Monogram); 
+        if(back_button.click()) 
+            lcd.current_page = MAIN_PAGE;
+    }
+    else if (lcd.current_page == SETT_PAGE)  // На данный момент 3
+    {
+        if (left_button.click()) 
+        {
+            if (additional_menu_pos == 0)
+                lcd.current_page--;
+            else
+                additional_menu_pos--;
+        }
+        if (right_button.click()) 
+        {
+            if (additional_menu_pos != 1)
+                additional_menu_pos++;
+        }
+        /*if (settings_button.click()) 
+        {
+            lcd.current_page++;
+        }*/
+        if(back_button.click()) {
+            lcd.current_page = MAIN_PAGE;
+            additional_menu_pos = 0;
+        }
+        
+        lcd.pg_print(SETT_PAGE, 0, 0, (byte) 165);
+        lcd.pg_print(SETT_PAGE, 0, 1, (byte) 165);
+        
+        if (additional_menu_pos == 0)
+            lcd.pg_print(SETT_PAGE, 0, 0, (byte) 126);
+        else if (additional_menu_pos == 1)
+            lcd.pg_print(SETT_PAGE, 0, 1, (byte) 126);
+    }
+    else if (lcd.current_page == -1)
+    {
+        settings_menu_pos = 0;
     }
     else if (lcd.current_page >= 4 && lcd.current_page <= 6)
     {
@@ -593,11 +772,21 @@ void button_handler() {
             Serial.println(lcd.current_page);
             Serial.println(lcd.pg_get_current_text());
         }
-        if (settings_button.click()) { 
-            lcd.current_page = 3;
+        if (settings_button.click()) 
+        { 
+            digitalWrite(GREEN_PIN, HIGH);
+            delay(50);
+            digitalWrite(GREEN_PIN, LOW);
         }
+        if (back_button.click()) 
+            lcd.current_page = 3;
     }
     
+    if (love_mode)
+        lcd.createChar(ML_Char, CustomChar_Love);
+    else
+        lcd.createChar(ML_Char, CustomChar_Monogram); 
+        
     lcd.pg_update_page();
 }
 

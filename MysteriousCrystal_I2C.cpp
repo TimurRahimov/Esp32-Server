@@ -46,7 +46,7 @@ void MysteriousCrystal_I2C::pg_update(bool all)
         if (_text_on_lcd[current_page][i] != _text_to_lcd[current_page][i] | all) {
             this->setCursor(i % 16, i / 16);
             if ((byte) _text_to_lcd[current_page][i] > 0 && (byte) _text_to_lcd[current_page][i] < 9)
-                this->write(byte(_text_to_lcd[current_page][i] - 1));
+                this->write(byte(_text_to_lcd[current_page][i]));
             else
                 this->print(_text_to_lcd[current_page][i]);
             _text_on_lcd[current_page][i] = _text_to_lcd[current_page][i];
@@ -78,7 +78,7 @@ void MysteriousCrystal_I2C::pg_print(uint8_t page, uint8_t col, uint8_t row, cha
 
 void MysteriousCrystal_I2C::pg_print(uint8_t page, uint8_t col, uint8_t row, byte text) 
 {   
-    _text_to_lcd[page][col + 16 * row] = char(text + 1);
+    _text_to_lcd[page][col + 16 * row] = char(text);
 }
 
 void MysteriousCrystal_I2C::pg_print(uint8_t page, String text) 
@@ -96,4 +96,9 @@ void MysteriousCrystal_I2C::pg_print(uint8_t page, String text)
 String MysteriousCrystal_I2C::pg_get_current_text()
 {
     return (String) _text_to_lcd[current_page];
+}
+
+void MysteriousCrystal_I2C::pg_setCursor(uint8_t page, uint8_t col, uint8_t row)
+{
+    _cursor_to_lcd[page] = col + 16 * row;
 }
